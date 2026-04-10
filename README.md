@@ -1,6 +1,6 @@
 # ollama-telegram-router
 
-*I built a Telegram bot that routes messages to local LLMs. Then I spent three weeks proving I'd been doing it wrong.*
+*I installed NemoClaw and Hermes Agent to run a Telegram bot on local LLMs. Then I spent three weeks proving the routing was wrong.*
 
 [한국어](./README.ko.md)
 
@@ -34,7 +34,7 @@ That's what I tried to do here.
 
 I built a benchmark loop — 30 prompts, two models, every 5 minutes. Autonomous. Self-healing. No babysitting. I didn't start with a conclusion. I started with a disagreement I couldn't resolve with intuition alone, and I built the thing that would settle it.
 
-The prompts weren't synthetic benchmarks. They were the actual things my Telegram bot does: bash commands, file reads, file writes, directory listings. If a model could handle those reliably, I wanted to know which one and why. If it couldn't, I wanted to know that too.
+The prompts weren't synthetic benchmarks. They were the actual things the Telegram bot does: bash commands, file reads, file writes, directory listings. If a model could handle those reliably, I wanted to know which one and why. If it couldn't, I wanted to know that too.
 
 ---
 
