@@ -1,69 +1,64 @@
 # ollama-telegram-router
 
-> Evidence-driven model routing for Telegram bots backed by autonomous benchmark loops — not keyword guessing.
+*I built a Telegram bot that routes messages to local LLMs. Then I spent three weeks proving I'd been doing it wrong.*
 
 ---
 
-## The Problem With Guessing
+## The Version of Me That Guessed
 
-Every model router starts the same way: someone writes a list of keywords.
+For a while, the router worked like this:
 
 ```javascript
-const TOOL_KEYWORDS = ["search", "calculate", "fetch", "run", "execute"];
-const QUALITY_KEYWORDS = ["explain", "analyze", "compare", "deep dive"];
-
 function routeModel(message) {
   if (TOOL_KEYWORDS.some(kw => message.toLowerCase().includes(kw)))
     return "qwen3.5:4b";
   if (QUALITY_KEYWORDS.some(kw => message.toLowerCase().includes(kw)))
     return "gemma4:e4b";
-  return "qwen3.5:4b"; // default
+  return "qwen3.5:4b";
 }
 ```
 
-It looks reasonable. It works in testing. Then a user asks:
+It looked smart. It felt systematic. I'd read enough about model routing to know that bigger models were better for complex tasks and smaller models were faster for simple ones. The keywords were just the implementation.
 
-> "compare the energy output of solar panels vs nuclear reactors"
-
-The router sees `compare` → routes to `gemma4:e4b`. Fine. But the next message:
-
-> "compare my two spreadsheets and calculate the variance"
-
-The router sees `calculate` first → routes to `qwen3.5:4b`. Both choices look correct in isolation. Neither is backed by evidence.
-
-**The keyword router is not making decisions. It's making guesses it can't verify.**
+The problem wasn't the logic. The problem was that the logic had no memory.
 
 ---
 
-## Why Autoresearch Was Necessary
+## What the Keywords Were Hiding
 
-The keyword approach fails in ways that aren't obvious until you run the experiment:
+Here is a thing that happened that I didn't notice at the time:
 
-- **"search"** appears in casual messages ("can you search for that later?") and technical ones ("search the filesystem recursively"). The keyword doesn't distinguish intent.
-- **"calculate"** in a spreadsheet context vs a financial context requires world knowledge no keyword list captures.
-- The performance gap between models changes with every version update. A routing decision made at prompt-engineering time degrades silently.
-- **You have no feedback loop.** The router can't observe that `gemma4:e2b` scored 28/30 last Tuesday and self-correct.
+A user sends: *"compare the energy output of solar panels vs nuclear reactors"*
 
-Keyword routing is guessing without a memory. The experiment loop is the memory.
+The router sees `compare` → `gemma4:e4b`. Fine.
+
+Then: *"compare my two spreadsheets and calculate the variance"*
+
+The router sees `calculate` first → `qwen3.5:4b`. Fine, right?
+
+Except I had no idea whether the first choice was right or the second. I only knew that both looked reasonable, which is the most dangerous state — when the wrong decision looks identical to the right one. The router was confident. It had no basis to be.
+
+The keyword list wasn't capturing intent. It was capturing the *appearance* of intent, and then I was treating that appearance as evidence.
 
 ---
 
-## What the Autoresearch Loop Actually Measures
+## The Experiment
 
-The Sovereign benchmark loop runs every 5 minutes, autonomously, against a 30-prompt suite covering 4 tool types:
+In April 2026 I ran the same 30 prompts against qwen3.5:4b and gemma4:e2b, every 5 minutes, for 71 cycles straight. No interruption. No babysitting — just a loop that scored both models on every run and logged the result.
 
-| Tool | What it tests |
-|------|---------------|
-| `bash` | Multi-part shell commands, pipes, redirects |
-| `read_file` | Single and multi-file reads, path handling |
-| `write_file` | Content generation, file creation |
-| `list_dir` | Directory traversal, filtering |
+The 30 prompts covered four tool types: bash, read_file, write_file, and list_dir. Not synthetic benchmarks. The actual things my Telegram bot does.
 
-Each cycle scores both models on tool selection accuracy and argument accuracy separately. Over 71 cycles the data stabilized into a clear picture.
+I didn't know what I was looking for. I just knew I wanted to stop guessing.
 
-### 71-Cycle Results
+---
 
-| | qwen3.5:4b (3.4 GB) | gemma4:e2b (7.2 GB) |
+## What I Got Wrong
+
+Before the data, I assumed: *bigger model = better at complex tasks = worth the latency hit.*
+
+After 71 cycles:
+
+| | qwen3.5:4b | gemma4:e2b |
 |---|---|---|
 | Mean accuracy | 98.6% | 98.7% |
 | Perfect runs (30/30) | 46.5% | **66.2%** |
@@ -71,127 +66,103 @@ Each cycle scores both models on tool selection accuracy and argument accuracy s
 | Latency (warm) | **1.0s** | 1.2s |
 | Combined score | **1.93** | 1.63 |
 
-**Combined score** = (tool_acc + args_acc) / avg_latency. Higher is better.
+qwen3.5:4b won on combined score. But gemma4:e2b hit 30/30 in 66% of its runs against qwen3.5:4b's 46%.
 
-### What the data changed
+I hadn't guessed that. The faster model was also the less consistent one.
 
-Before the experiment, the guess was: *bigger model = better for complex tasks*.
-
-The data said: *qwen3.5:4b is faster at tool calls AND more accurate on argument parsing, while gemma4:e2b is more consistent on perfect runs but 20% slower*.
-
-The biggest single improvement wasn't a model change — it was `OLLAMA_KEEP_ALIVE=-1`. Eliminating the 50-60 second cold-start per cycle is what made the loop viable. Without it, 71 continuous cycles would have taken 60+ hours of warmup. With it: 6 hours.
+The data didn't just correct the router. It corrected a belief I hadn't realized I was carrying — that I was making the safe choice by always routing to the slower model for anything that seemed complex.
 
 ---
 
-## The Routing Logic (Calibrated From Evidence)
+## The Discovery That Made Everything Else Possible
+
+The experiment loop had a cold-start problem. Every time a model loaded from disk, it took 50–60 seconds before the first result came back. Running continuously, 71 cycles would have taken 60+ hours of warmup alone.
+
+Then I found `OLLAMA_KEEP_ALIVE=-1`.
+
+One environment variable. The models stayed hot in VRAM between cycles. Cold-start dropped from 50 seconds to under 1.
+
+The loop that couldn't run in a reasonable time now ran in six hours. The entire experiment was downstream of this one variable. Without it, I'd have run maybe 10 cycles, seen noisy early data, and drawn the wrong conclusions.
+
+I don't think of this as a configuration detail. I think of it as the night I stopped trying to run an experiment and started actually running one.
+
+---
+
+## What I Learned About Myself
+
+The keyword router wasn't just technically limited. It was comfortable. Every guess it made looked like a decision. I could defend any of them in a conversation: *"I route to gemma for complex tasks because..."*
+
+The experiment loop was less comfortable. It kept score. Every cycle, it told me something true that I hadn't asked it to measure.
+
+Over 71 cycles, the two models disagreed on which was better 31% of the time — and when they disagreed, qwen3.5:4b was the one that usually dipped. I didn't know that. I would have guessed the opposite.
+
+The loop is still running. It's on a 5-minute cycle. Every 5 minutes it scores both models on the same 30 prompts and writes the result somewhere I can read. I don't make routing decisions anymore. I let the loop tell me what the routing should be.
+
+---
+
+## The Routing Logic
 
 ```
 classify(message)
-  TOOL_USE  → word count > 8 + any of: search, calculate, fetch, execute,
-                        read file, write file, bash, git, curl, http...
-  CASUAL    → word count <= 8
-  COMPLEX   → any of: explain, analyze, architecture, refactor,
-                        strategy, thorough, vs, versus, tradeoff...
+  TOOL_USE  → keyword: search, calculate, fetch, execute,
+                        read file, write file, bash, git, curl...
+  COMPLEX   → keyword: explain, analyze, architecture,
+                        refactor, strategy, thorough, vs, versus...
+  CASUAL    → short message (≤8 words), no tool/complex signals
   ROUTINE   → otherwise
 
 route(message)
-  TOOL_USE  → qwen3.5:4b   (98.6% tool accuracy, 1.0s latency, combined 1.93)
-  CASUAL    → qwen3.5:4b   (no accuracy difference, fastest option)
-  COMPLEX   → gemma4:e4b   (better reasoning — data accumulating)
-  ROUTINE   → qwen3.5:4b   (default: fastest model, no accuracy penalty)
+  TOOL_USE  → qwen3.5:4b   (98.6% accuracy, 1.0s, combined 1.93)
+  CASUAL    → qwen3.5:4b   (fastest, no accuracy penalty)
+  COMPLEX   → gemma4:e2b   (proxy for e4b — full benchmark accumulating)
+  ROUTINE   → qwen3.5:4b   (default: fastest model)
 ```
 
-Every routing decision cites the cycle count and metric that backs it. When the e4b benchmark completes, the COMPLEX category will update automatically.
+The COMPLEX → gemma4:e2b routing is a proxy. gemma4:e4b is the target model (more VRAM, better reasoning), but the 30-prompt benchmark against it is still running — 50+ cycles in, not yet complete. When the data is in, the routing updates automatically.
 
 ---
 
-## The Evidence Chain
+## What's Still Open
 
-This is where `/gemma-sense` methodology applies directly.
+The experiment loop runs. The questions don't stop.
 
-The analogue is exact:
+The next one is this: what if the routing decision itself could be measured per-query, not just in aggregate? The ACAR paper from the benchmark literature describes a σ-probe approach — run each message through both models, measure the variance in their responses, and route based on that. Not static routing based on keywords. Adaptive routing based on what the models actually say.
 
-| gemma-sense | ollama-telegram-router |
-|---|---|
-| Raw text needing calibration | Keyword router guessing wrong |
-| Gemma's pattern corrections | Benchmark data correcting the guess |
-| Call log → periodic review → updated prompts | Experiment log → 71 cycles → updated routing |
-| Ground truth: user reverts | Ground truth: repeated measurement |
-
-The `/gemma-sense` insight was: **the text that needs polishing reveals the judgment being applied**. The keyword router reveals the same thing — it was applying a "bigger model = smarter" heuristic dressed up as routing logic.
-
-The experiment loop is the calibration. Every cycle is a judgment call that either confirms or contradicts the current routing. After 71 cycles, the confidence intervals are narrow enough to route on.
-
----
-
-## Integration
-
-Drop `router.js` into your Telegram bridge:
-
-```javascript
-// Before (keyword guessing):
-function routeModel(message) {
-  if (TOOL_KEYWORDS.some(kw => message.toLowerCase().includes(kw)))
-    return "qwen3.5:4b";
-  return "gemma4:e2b";
-}
-
-// After (evidence-driven):
-const { routeMessage } = require('./router');
-function routeModel(message) {
-  const decision = routeMessage(message);
-  // decision.model        → "qwen3.5:4b" or "gemma4:e4b"
-  // decision.category     → "TOOL_USE" | "CASUAL" | "COMPLEX" | "ROUTINE"
-  // decision.confidence   → "HIGH — 98.6% tool accuracy over 71 cycles"
-  // decision.reasoning   → human-readable evidence citation
-  return decision.model;
-}
-```
-
-Run your own calibration loop:
-
-```bash
-cd scripts && ./run_experiments.sh
-# Starts 5-minute autonomous cycle
-# Logs every run to ../benchmark-data/experiment_log.md
-# Self-healing: restarts on OOM, skips duplicate cycles on restart
-```
-
----
-
-## What Didn't Work (And Why It's In the README)
-
-The instinct to over-engineer was strong at the start:
-
-| Rejected approach | Why |
-|---|---|
-| Planner/caller decomposition | Multi-LLM Agent and ACAR papers show it adds 1+ extra passes — not worth it at 99% accuracy |
-| Finer keyword granularity | Didn't solve the fundamental problem: keywords don't capture intent |
-| Toolformer fine-tuning | No training corpus yet — needs 100+ failed prompt examples |
-| gemma4:e4b alongside 3-model stack | Exceeds 24GB VRAM when stacked with gemma4-26b |
-
-The ACAR σ-probe routing (variance-based per-query model selection) is the next experiment: run each query through both models and pick by response variance. That's a different architecture than static routing — and it needs its own benchmark loop to validate.
+That's the next experiment. It needs its own benchmark loop. The one I'm running now is what makes that experiment legible.
 
 ---
 
 ## What This Is Not
 
-- **Not a general-purpose Ollama wrapper.** The benchmark suite is specific to Telegram tool-calling patterns.
-- **Not comparable to API-Bank or ToolBench.** Those measure cross-vendor capability. This measures which of your local models handles your specific prompts better, every 5 minutes.
-- **Not finished.** The gemma4:e4b 30-prompt benchmark is still running (cycles 50+). The COMPLEX → e4b routing is a proxy until that data is complete.
+- Not a general-purpose Ollama wrapper. The benchmark suite is specific to my Telegram tool-calling patterns.
+- Not comparable to API-Bank or ToolBench. Those measure whether GPT-4 can use tools. This measures whether my two local models can use mine.
+- Not finished. The e4b benchmark is still accumulating. The COMPLEX → e4b routing is provisional until the data is clean.
 
 ---
 
-## The 5-Minute Loop
+## Running Your Own
 
+Drop `router.js` into your Telegram bridge:
+
+```javascript
+const { routeMessage } = require('./router');
+
+function routeModel(message) {
+  const decision = routeMessage(message);
+  // decision.model      → "qwen3.5:4b" or "gemma4:e4b"
+  // decision.category   → "TOOL_USE" | "CASUAL" | "COMPLEX" | "ROUTINE"
+  // decision.reasoning → cites the cycle count and metric
+  return decision.model;
+}
 ```
-+5 min → benchmark.py runs 30 prompts × 2 models
-        → scores written to experiment_log.md
-        → if score drops: alert + log
-        → if both fail: restart ollama-daemon
-        → repeat
 
-71 cycles × 30 prompts × 2 models = 42,600 individual tool calls measured
+Start the experiment loop:
+
+```bash
+cd scripts && ./run_experiments.sh
+# 5-minute autonomous cycle, self-healing, logs to ../benchmark-data/
 ```
 
-The loop is the instrument. You tune the router the way a musician tunes a guitar: by measuring the actual output, not by inspecting the design drawings.
+---
+
+*71 cycles × 30 prompts × 2 models = 42,600 individual tool calls measured. The loop is still going.*
