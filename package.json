@@ -1,0 +1,22 @@
+{
+  "name": "ollama-telegram-router",
+  "version": "1.0.0",
+  "description": "Evidence-driven model routing for Telegram bots backed by autonomous benchmark loops",
+  "main": "router.js",
+  "scripts": {
+    "route": "node router.js",
+    "route:test": "node router.js 'search the web for climate data'",
+    "route:casual": "node router.js 'hi there'",
+    "route:complex": "node router.js 'explain the architecture of transformers'"
+  },
+  "keywords": [
+    "ollama",
+    "telegram",
+    "model-routing",
+    "tool-calling",
+    "benchmark",
+    "autoresearch"
+  ],
+  "author": "Anthony Cho",
+  "license": "MIT"
+}
