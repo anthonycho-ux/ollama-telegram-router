@@ -2,6 +2,8 @@
 
 *I built a Telegram bot that routes messages to local LLMs. Then I spent three weeks proving I'd been doing it wrong.*
 
+[한국어](./README.ko.md)
+
 ---
 
 ## The Version of Me That Guessed
@@ -39,6 +41,8 @@ The prompts weren't synthetic benchmarks. They were the actual things my Telegra
 ## The Experiment
 
 In April 2026 I ran the same 30 prompts against qwen3.5:4b and gemma4:e2b, every 5 minutes, for 71 cycles straight. No interruption. No babysitting.
+
+The rig: NVIDIA RTX 3090 (24GB VRAM, ~15GB free during benchmark), AMD Ryzen 7 5700G, 16 cores. The VRAM ceiling is real — at 26GB total for the three-model stack, there were experiments I couldn't run because they wouldn't fit in memory simultaneously.
 
 71 cycles × 30 prompts × 2 models = 42,600 individual tool calls measured.
 
